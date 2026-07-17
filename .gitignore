@@ -45,3 +45,7 @@ env/
 *.tmp
 *.temp
 *~
+
+# Local backup files
+*.backup
+*.bak
