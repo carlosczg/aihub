@@ -1,0 +1,23 @@
+{
+  "platform": {
+    "name": "AI Hub",
+    "version": "0.1.0",
+    "execution_mode": "local"
+  },
+  "storage": {
+    "type": "local-filesystem",
+    "root": "."
+  },
+  "folders": {
+    "system": "00-System",
+    "ingestion": "01-Ingestion",
+    "curated": "02-Curated",
+    "knowledge": "03-Knowledge",
+    "agents": "04-Agents",
+    "prompts": "05-Prompts",
+    "workspace": "06-Workspace",
+    "exports": "07-Exports",
+    "indexes": "08-Indexes",
+    "archive": "09-Archive"
+  }
+}

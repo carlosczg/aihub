@@ -1,0 +1,47 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Python environments
+.venv/
+venv/
+env/
+
+# Environment variables and secrets
+.env
+.env.*
+*.key
+*.pem
+
+# AI Hub — source and generated knowledge
+01-Ingestion/
+02-Curated/
+03-Knowledge/
+06-Workspace/
+07-Exports/
+08-Indexes/
+09-Archive/
+
+# AI Hub — runtime artifacts
+00-System/Logs/
+00-System/Temp/
+
+# Machine-specific configuration
+00-System/Config/knowledge_sources.conf
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*~
