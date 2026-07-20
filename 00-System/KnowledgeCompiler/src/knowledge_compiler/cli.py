@@ -177,6 +177,20 @@ def run(root: Path | None = None, *, dry_run: bool = False, force_full: bool = F
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw_argv = sys.argv[1:] if argv is None else list(argv)
+
+    # `normalize` dispatches to the V1.2.0 normalizer CLI entirely; an
+    # optional leading `scan` is stripped so it can be used symmetrically,
+    # but is never required -- every argv shape the existing scan tests
+    # pass in (e.g. ["--root", ..., "--dry-run"]) falls through unchanged
+    # to the parser below, exactly as before this dispatch was added.
+    if raw_argv and raw_argv[0] == "normalize":
+        from .normalizer_cli import main as normalize_main
+
+        return normalize_main(raw_argv[1:])
+    if raw_argv and raw_argv[0] == "scan":
+        raw_argv = raw_argv[1:]
+
     parser = argparse.ArgumentParser(
         prog="knowledge-compiler",
         description="Build a deterministic, incremental inventory manifest of the AI Hub ingestion layer.",
@@ -197,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Force hash recomputation for every eligible file. Also required to recover from a corrupt previous manifest.",
     )
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
 
     try:
         result = run(args.root, dry_run=args.dry_run, force_full=args.full)

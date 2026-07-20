@@ -3,7 +3,7 @@ name = "knowledge-compiler"
 version = "0.1.0"
 description = "AI Hub Knowledge Compiler -- deterministic inventory of the knowledge repository (V1: Scanner, Metadata, Manifest)"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["PyYAML>=6.0"]
 
 [project.scripts]
 knowledge-compiler = "knowledge_compiler.cli:main"

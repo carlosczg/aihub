@@ -2,7 +2,7 @@
 
 ## Last updated
 
-2026-07-17
+2026-07-20
 
 ## Current milestone
 
@@ -10,6 +10,13 @@ Knowledge Compiler V1.1 (Incremental Engine) implemented, unit-tested, and
 successfully executed in production against the real `01-Ingestion`
 repository. V1.1.1 (directory-level scan-error patch) completed and
 unit-tested; not yet executed against the real `01-Ingestion`.
+
+Knowledge Compiler V1.2.0 (Document Normalizer) is **formally closed**:
+implemented, unit-tested (132 tests, all synthetic fixtures), and
+successfully executed for the first time against the real repository on
+branch `feature/document-normalizer-v1.2` (run_id
+`20260720T030909.550868Z-bc40`, initial mode, exit code 0 / clean). Not
+yet merged to `main`.
 
 ## Completed
 
@@ -53,6 +60,43 @@ unit-tested; not yet executed against the real `01-Ingestion`.
   from 54), including 3 new tests covering unreadable-directory
   detection, sibling-scan isolation, and deterministic repeat-run
   behavior.
+- Knowledge Compiler V1.2.0 (Document Normalizer) implemented: normalizer
+  state engine, converter router, deterministic canonical Markdown
+  builder, curated manifest, normalizer run metadata and immutable run
+  history, `normalize` CLI command (`knowledge-compiler normalize`,
+  dispatched non-destructively alongside the original scan command).
+  Text-native converters implemented for `.md .txt .json .yaml .sql .py
+  .sh .java`; PDF/Office/HTML/OCR/image/email/notebook/diagram/
+  legacy-office/multimodal/structured-data formats are recognized as
+  `deferred` (roadmap, not implemented) rather than `unsupported`. `.csv`
+  and `.xml` were moved from text-native to `deferred` on 2026-07-20 --
+  both are structured-data formats, not free text, and are now reserved
+  for a future Structured Data Compiler rather than being wrapped as
+  opaque fenced text. Consumes the V1.1 document manifest as its source
+  inventory and never rescans `01-Ingestion`.
+  State classification (`converted_new`, `converted_stale`,
+  `converted_stale_converter`, `unchanged`, `unsupported`, `deferred`,
+  `failed`) is mutually exclusive; `orphaned` previous-curated entries
+  (source deleted upstream) are tracked separately and their outputs are
+  left untouched. Degraded runs (document-level failures) still publish
+  all three curated artifacts and exit 2; only structural failures
+  (missing/corrupt required manifests, metrics-invariant violation,
+  publish failure) abort without advancing the curated manifest, exit 1.
+  `--dry-run` invokes converters in-memory but writes nothing, including
+  temporary artifacts. PyYAML added as the only new runtime dependency.
+  62 new unit tests added (up from 57 to 119 total; 5 more added for the
+  `.csv`/`.xml` scope revision and degraded-run diagnostics work brought
+  the suite to 132), all against synthetic temporary fixtures -- no real
+  corpus processing during implementation.
+- Degraded-run diagnostics added to the normalizer: sanitized, path-free
+  failure reasons, a "Failures" section printed by the CLI (relative
+  path, converter, exception class, reason) whenever `failed > 0` in
+  either dry-run or real-run mode, and identical per-document failure
+  detail persisted in both `normalizer_run_metadata.json` and the
+  immutable run-history file.
+- First real V1.2.0 production run executed against the real repository
+  (run_id `20260720T030909.550868Z-bc40`, initial mode, exit code 0 /
+  clean). See "Validation results (V1.2.0 production run)" below.
 
 ## V1.1.1 status
 
@@ -87,26 +131,54 @@ the V1.1 run recorded below (`20260717T030748.563951Z-dfb7`).
 - This run's diff against the prior legacy manifest: 4,864 new · 6
   modified · 2,878 unchanged · 3,068 deleted.
 
+## Validation results (V1.2.0 production run 20260720T030909.550868Z-bc40)
+
+- Exit code: 0 (clean — zero failed files).
+- Metrics invariants held: source_total = text_native + deferred +
+  unsupported (7,748 = 179 + 7,544 + 25); text_native = converted_new +
+  converted_stale + converted_stale_converter + unchanged + failed
+  (179 = 179 + 0 + 0 + 0 + 0).
+- 179 text-native documents converted (`converted_new`), 0 failed,
+  0 unchanged/stale (first run, no previous curated manifest), 0
+  orphaned; 7,544 deferred (PDF/Office/HTML/OCR/image/email/notebook/
+  diagram/legacy-office/structured-data families); 25 unsupported.
+- `document_normalizer_manifest.jsonl` line count (179) matches
+  `converted_new` exactly.
+- Curated manifest, `normalizer_run_metadata.json`, and the immutable
+  run-history file (`02-Curated/Metadata/runs/
+  run_20260720T030909.550868Z-bc40.json`) were all created and are
+  mutually consistent (same run_id and metrics in both the run-metadata
+  pointer and the run-history record).
+- 179 canonical Markdown files written under `02-Curated/Markdown/`,
+  matching the curated manifest count exactly.
+- `01-Ingestion` was not modified by this run (the normalizer only reads
+  it and only writes under `02-Curated`).
+
 ## Next milestones
 
-1. Initialize Git and create the first stable commit — the repository has
-   no commit history yet; everything to date is untracked working state.
+1. Merge `feature/document-normalizer-v1.2` to `main` and tag the release
+   now that V1.2.0 is implemented, tested, and has a clean real-corpus
+   run on record.
 2. Create ADRs for: document identity and rename semantics (`relative_path`
    as path-stable, not rename-stable), the atomic multi-artifact publishing
-   model, and the legacy schema (v1 → v2) migration policy.
-3. Define the V1.2 scope for deterministic document-to-Markdown conversion.
-4. Review the 3,068 `deleted` entries from the V1.1 production run to
+   model, the legacy schema (v1 → v2) migration policy, and the
+   normalizer's deferred-vs-unsupported extension classification.
+3. Review the 3,068 `deleted` entries from the V1.1 production run to
    confirm they reflect legitimate OneDrive-side removals rather than a
    Knowledge Sync gap — V1.1 does not correlate renames, so a rename
    appears as one `deleted` entry plus one unrelated `new` entry.
+4. Review the 25 `unsupported` documents from the V1.2.0 production run
+   to confirm none of them should instead be added to `DEFERRED_EXTENSIONS`
+   as a recognized future-roadmap format.
 5. Establish a recurring execution cadence for Knowledge Compiler (manual
    trigger for now; scheduling is out of scope until the platform owner
    approves an automation policy).
 6. Define a run-history retention policy — no pruning is implemented yet,
-   so `08-Indexes/Metadata/runs/` grows unbounded.
-7. Design the `02-Curated` transformation stage that consumes the
-   document manifest (normalization, enrichment) — the next layer in the
-   architecture after Knowledge Compiler.
+   so `08-Indexes/Metadata/runs/` and `02-Curated/Metadata/runs/` both
+   grow unbounded.
+7. Design PDF, Office, and other deferred-format converters (including a
+   Structured Data Compiler for `.csv`/`.xml`) as their own Knowledge
+   Compiler versions -- V1.2.0 only covers text-native formats.
 8. Design the `03-Knowledge` reusable-knowledge layer and its relationship
    to `02-Curated`.
 
@@ -116,4 +188,13 @@ the V1.1 run recorded below (`20260717T030748.563951Z-dfb7`).
 08-Indexes/Metadata/document_manifest.jsonl
 08-Indexes/Metadata/manifest_run_metadata.json
 08-Indexes/Metadata/runs/run_20260717T030748.563951Z-dfb7.json
+```
+
+## V1.2.0 outputs (curated_manifest schema_version 1, real run on record)
+
+```text
+02-Curated/Markdown/<mirrored source path>/<original filename>.md  (179 files)
+02-Curated/Metadata/document_normalizer_manifest.jsonl
+02-Curated/Metadata/normalizer_run_metadata.json
+02-Curated/Metadata/runs/run_20260720T030909.550868Z-bc40.json
 ```
