@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import unittest
+import uuid
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -38,10 +39,17 @@ def _curated_entry(
     source_sha256: str,
     converter_id: str = CONVERTER_ID,
     converter_version: str = CONVERTER_VERSION,
+    document_id: str = "00000000-0000-0000-0000-000000000000",
+    knowledge_source: str = "Manual",
+    document_type: str = "unknown",
+    language: str = "und",
 ) -> CuratedDocumentMetadata:
     return CuratedDocumentMetadata(
+        document_id=document_id,
         relative_path=relative_path,
-        knowledge_source="Manual",
+        knowledge_source=knowledge_source,
+        document_type=document_type,
+        language=language,
         source_extension=Path(relative_path).suffix.lower(),
         source_sha256=source_sha256,
         converter_id=converter_id,
@@ -385,6 +393,497 @@ class FailureDiagnosticsTests(unittest.TestCase):
 
             self.assertEqual(len(result.failed), 1)
             self.assertNotIn(secret_marker, result.failed[0].reason)
+
+
+class DocumentIdTests(unittest.TestCase):
+    def test_new_document_is_assigned_a_fresh_uuid4(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "Manual").mkdir(parents=True)
+            content = b"print(1)\n"
+            (ingestion_dir / "Manual" / "a.py").write_bytes(content)
+
+            source_entries = {"Manual/a.py": _source_entry("Manual/a.py", sha256=_hash(content))}
+
+            result = classify_normalization(
+                source_entries, {}, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            document_id = result.curated_entries["Manual/a.py"].document_id
+            self.assertTrue(document_id)
+            self.assertEqual(uuid.UUID(document_id).version, 4)
+
+    def test_two_new_documents_get_distinct_document_ids(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "Manual").mkdir(parents=True)
+            (ingestion_dir / "Manual" / "a.py").write_bytes(b"a = 1\n")
+            (ingestion_dir / "Manual" / "b.py").write_bytes(b"b = 2\n")
+
+            source_entries = {
+                "Manual/a.py": _source_entry("Manual/a.py", sha256=_hash(b"a = 1\n")),
+                "Manual/b.py": _source_entry("Manual/b.py", sha256=_hash(b"b = 2\n")),
+            }
+
+            result = classify_normalization(
+                source_entries, {}, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertNotEqual(
+                result.curated_entries["Manual/a.py"].document_id,
+                result.curated_entries["Manual/b.py"].document_id,
+            )
+
+    def test_unchanged_document_keeps_its_previous_document_id(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "Manual").mkdir(parents=True)
+            content = b"hello\n"
+            (ingestion_dir / "Manual" / "a.txt").write_bytes(content)
+            sha = _hash(content)
+
+            previous = {
+                "Manual/a.txt": _curated_entry(
+                    "Manual/a.txt", source_sha256=sha, document_id="prev-document-id"
+                )
+            }
+            source_entries = {"Manual/a.txt": _source_entry("Manual/a.txt", sha256=sha)}
+
+            result = classify_normalization(
+                source_entries, previous, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(result.curated_entries["Manual/a.txt"].document_id, "prev-document-id")
+
+    def test_converted_stale_preserves_previous_document_id(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "Manual").mkdir(parents=True)
+            new_content = b"new content\n"
+            (ingestion_dir / "Manual" / "a.txt").write_bytes(new_content)
+
+            previous = {
+                "Manual/a.txt": _curated_entry(
+                    "Manual/a.txt",
+                    source_sha256=_hash(b"old content\n"),
+                    document_id="prev-document-id",
+                )
+            }
+            source_entries = {
+                "Manual/a.txt": _source_entry("Manual/a.txt", sha256=_hash(new_content))
+            }
+
+            result = classify_normalization(
+                source_entries, previous, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(result.converted_stale, ["Manual/a.txt"])
+            self.assertEqual(result.curated_entries["Manual/a.txt"].document_id, "prev-document-id")
+
+    def test_converted_stale_converter_preserves_previous_document_id(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "Manual").mkdir(parents=True)
+            content = b"same content\n"
+            (ingestion_dir / "Manual" / "a.txt").write_bytes(content)
+            sha = _hash(content)
+
+            previous = {
+                "Manual/a.txt": _curated_entry(
+                    "Manual/a.txt",
+                    source_sha256=sha,
+                    converter_version="0.0.1-old",
+                    document_id="prev-document-id",
+                )
+            }
+            source_entries = {"Manual/a.txt": _source_entry("Manual/a.txt", sha256=sha)}
+
+            result = classify_normalization(
+                source_entries, previous, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(result.converted_stale_converter, ["Manual/a.txt"])
+            self.assertEqual(result.curated_entries["Manual/a.txt"].document_id, "prev-document-id")
+
+    def test_failed_document_with_previous_entry_preserves_document_id(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "Manual").mkdir(parents=True)
+            bad_bytes = b"\xff\xfe\x00broken"
+            (ingestion_dir / "Manual" / "a.txt").write_bytes(bad_bytes)
+
+            previous = {
+                "Manual/a.txt": _curated_entry(
+                    "Manual/a.txt", source_sha256=_hash(b"old"), document_id="prev-document-id"
+                )
+            }
+            source_entries = {
+                "Manual/a.txt": _source_entry("Manual/a.txt", sha256=_hash(bad_bytes))
+            }
+
+            result = classify_normalization(
+                source_entries, previous, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(len(result.failed), 1)
+            self.assertEqual(result.curated_entries["Manual/a.txt"].document_id, "prev-document-id")
+
+    def test_orphaned_entry_keeps_its_document_id(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            ingestion_dir.mkdir(parents=True)
+
+            previous = {
+                "Manual/gone.txt": _curated_entry(
+                    "Manual/gone.txt", source_sha256=_hash(b"x"), document_id="prev-document-id"
+                )
+            }
+
+            result = classify_normalization(
+                {}, previous, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(result.orphaned, ["Manual/gone.txt"])
+            self.assertEqual(
+                result.curated_entries["Manual/gone.txt"].document_id, "prev-document-id"
+            )
+
+
+class DocumentTypeTests(unittest.TestCase):
+    def test_each_known_knowledge_source_maps_to_its_document_type(self) -> None:
+        expected = {
+            "OneDrive-Proposals": "proposal",
+            "OneDrive-Marketing": "marketing",
+            "OneDrive-Portfolio": "portfolio",
+        }
+        for knowledge_source, expected_type in expected.items():
+            with self.subTest(knowledge_source=knowledge_source):
+                with TemporaryDirectory() as tmp:
+                    ingestion_dir = Path(tmp) / "01-Ingestion"
+                    markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+                    (ingestion_dir / knowledge_source).mkdir(parents=True)
+                    content = b"hello\n"
+                    (ingestion_dir / knowledge_source / "a.txt").write_bytes(content)
+
+                    source_entries = {
+                        f"{knowledge_source}/a.txt": _source_entry(
+                            f"{knowledge_source}/a.txt",
+                            sha256=_hash(content),
+                            knowledge_source=knowledge_source,
+                        )
+                    }
+
+                    result = classify_normalization(
+                        source_entries, {}, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                        run_timestamp=RUN_TS, dry_run=False,
+                    )
+
+                    entry = result.curated_entries[f"{knowledge_source}/a.txt"]
+                    self.assertEqual(entry.document_type, expected_type)
+
+    def test_unmapped_knowledge_source_maps_to_unknown(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "SomeOtherSource").mkdir(parents=True)
+            content = b"hello\n"
+            (ingestion_dir / "SomeOtherSource" / "a.txt").write_bytes(content)
+
+            source_entries = {
+                "SomeOtherSource/a.txt": _source_entry(
+                    "SomeOtherSource/a.txt",
+                    sha256=_hash(content),
+                    knowledge_source="SomeOtherSource",
+                )
+            }
+
+            result = classify_normalization(
+                source_entries, {}, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(
+                result.curated_entries["SomeOtherSource/a.txt"].document_type, "unknown"
+            )
+
+    def test_converted_stale_recomputes_document_type_from_current_knowledge_source(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "OneDrive-Proposals").mkdir(parents=True)
+            new_content = b"new content\n"
+            (ingestion_dir / "OneDrive-Proposals" / "a.txt").write_bytes(new_content)
+
+            # Previous entry deliberately carries a stale/incorrect document_type
+            # to prove reconversion recomputes it rather than blindly reusing it.
+            previous = {
+                "OneDrive-Proposals/a.txt": _curated_entry(
+                    "OneDrive-Proposals/a.txt",
+                    source_sha256=_hash(b"old content\n"),
+                    knowledge_source="OneDrive-Proposals",
+                    document_type="unknown",
+                )
+            }
+            source_entries = {
+                "OneDrive-Proposals/a.txt": _source_entry(
+                    "OneDrive-Proposals/a.txt",
+                    sha256=_hash(new_content),
+                    knowledge_source="OneDrive-Proposals",
+                )
+            }
+
+            result = classify_normalization(
+                source_entries, previous, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(result.converted_stale, ["OneDrive-Proposals/a.txt"])
+            self.assertEqual(
+                result.curated_entries["OneDrive-Proposals/a.txt"].document_type, "proposal"
+            )
+
+    def test_unchanged_document_keeps_its_previous_document_type(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "Manual").mkdir(parents=True)
+            content = b"hello\n"
+            (ingestion_dir / "Manual" / "a.txt").write_bytes(content)
+            sha = _hash(content)
+
+            previous = {
+                "Manual/a.txt": _curated_entry(
+                    "Manual/a.txt", source_sha256=sha, document_type="marketing"
+                )
+            }
+            source_entries = {"Manual/a.txt": _source_entry("Manual/a.txt", sha256=sha)}
+
+            result = classify_normalization(
+                source_entries, previous, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(result.unchanged, ["Manual/a.txt"])
+            self.assertEqual(result.curated_entries["Manual/a.txt"].document_type, "marketing")
+
+    def test_orphaned_entry_keeps_its_document_type(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            ingestion_dir.mkdir(parents=True)
+
+            previous = {
+                "Manual/gone.txt": _curated_entry(
+                    "Manual/gone.txt", source_sha256=_hash(b"x"), document_type="portfolio"
+                )
+            }
+
+            result = classify_normalization(
+                {}, previous, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(result.orphaned, ["Manual/gone.txt"])
+            self.assertEqual(
+                result.curated_entries["Manual/gone.txt"].document_type, "portfolio"
+            )
+
+
+class DocumentLanguageTests(unittest.TestCase):
+    SPANISH_CONTENT = (
+        b"El documento describe la propuesta para el cliente y el equipo "
+        b"en la reunion de hoy.\n"
+    )
+    ENGLISH_CONTENT = (
+        b"The document describes the proposal for the client and the "
+        b"team in this meeting today.\n"
+    )
+
+    def test_new_document_computes_spanish_from_source_content(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "Manual").mkdir(parents=True)
+            (ingestion_dir / "Manual" / "a.txt").write_bytes(self.SPANISH_CONTENT)
+
+            source_entries = {
+                "Manual/a.txt": _source_entry("Manual/a.txt", sha256=_hash(self.SPANISH_CONTENT))
+            }
+
+            result = classify_normalization(
+                source_entries, {}, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(result.curated_entries["Manual/a.txt"].language, "es")
+
+    def test_new_document_computes_english_from_source_content(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "Manual").mkdir(parents=True)
+            (ingestion_dir / "Manual" / "a.txt").write_bytes(self.ENGLISH_CONTENT)
+
+            source_entries = {
+                "Manual/a.txt": _source_entry("Manual/a.txt", sha256=_hash(self.ENGLISH_CONTENT))
+            }
+
+            result = classify_normalization(
+                source_entries, {}, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(result.curated_entries["Manual/a.txt"].language, "en")
+
+    def test_new_document_with_too_little_text_is_undetermined(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "Manual").mkdir(parents=True)
+            content = b"x = 1\n"
+            (ingestion_dir / "Manual" / "a.py").write_bytes(content)
+
+            source_entries = {"Manual/a.py": _source_entry("Manual/a.py", sha256=_hash(content))}
+
+            result = classify_normalization(
+                source_entries, {}, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(result.curated_entries["Manual/a.py"].language, "und")
+
+    def test_converted_stale_recomputes_language_from_new_content(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "Manual").mkdir(parents=True)
+            (ingestion_dir / "Manual" / "a.txt").write_bytes(self.ENGLISH_CONTENT)
+
+            previous = {
+                "Manual/a.txt": _curated_entry(
+                    "Manual/a.txt",
+                    source_sha256=_hash(self.SPANISH_CONTENT),
+                    language="es",
+                )
+            }
+            source_entries = {
+                "Manual/a.txt": _source_entry("Manual/a.txt", sha256=_hash(self.ENGLISH_CONTENT))
+            }
+
+            result = classify_normalization(
+                source_entries, previous, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(result.converted_stale, ["Manual/a.txt"])
+            self.assertEqual(result.curated_entries["Manual/a.txt"].language, "en")
+
+    def test_converted_stale_converter_recomputes_language(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "Manual").mkdir(parents=True)
+            (ingestion_dir / "Manual" / "a.txt").write_bytes(self.SPANISH_CONTENT)
+            sha = _hash(self.SPANISH_CONTENT)
+
+            previous = {
+                "Manual/a.txt": _curated_entry(
+                    "Manual/a.txt",
+                    source_sha256=sha,
+                    converter_version="0.0.1-old",
+                    language="und",
+                )
+            }
+            source_entries = {"Manual/a.txt": _source_entry("Manual/a.txt", sha256=sha)}
+
+            result = classify_normalization(
+                source_entries, previous, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(result.converted_stale_converter, ["Manual/a.txt"])
+            self.assertEqual(result.curated_entries["Manual/a.txt"].language, "es")
+
+    def test_unchanged_document_keeps_its_previous_language(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "Manual").mkdir(parents=True)
+            content = b"hello\n"
+            (ingestion_dir / "Manual" / "a.txt").write_bytes(content)
+            sha = _hash(content)
+
+            previous = {
+                "Manual/a.txt": _curated_entry("Manual/a.txt", source_sha256=sha, language="es")
+            }
+            source_entries = {"Manual/a.txt": _source_entry("Manual/a.txt", sha256=sha)}
+
+            result = classify_normalization(
+                source_entries, previous, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(result.unchanged, ["Manual/a.txt"])
+            self.assertEqual(result.curated_entries["Manual/a.txt"].language, "es")
+
+    def test_failed_document_with_previous_entry_preserves_language(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            (ingestion_dir / "Manual").mkdir(parents=True)
+            bad_bytes = b"\xff\xfe\x00broken"
+            (ingestion_dir / "Manual" / "a.txt").write_bytes(bad_bytes)
+
+            previous = {
+                "Manual/a.txt": _curated_entry(
+                    "Manual/a.txt", source_sha256=_hash(b"old"), language="en"
+                )
+            }
+            source_entries = {
+                "Manual/a.txt": _source_entry("Manual/a.txt", sha256=_hash(bad_bytes))
+            }
+
+            result = classify_normalization(
+                source_entries, previous, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(len(result.failed), 1)
+            self.assertEqual(result.curated_entries["Manual/a.txt"].language, "en")
+
+    def test_orphaned_entry_keeps_its_language(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ingestion_dir = Path(tmp) / "01-Ingestion"
+            markdown_dir = Path(tmp) / "02-Curated" / "Markdown"
+            ingestion_dir.mkdir(parents=True)
+
+            previous = {
+                "Manual/gone.txt": _curated_entry(
+                    "Manual/gone.txt", source_sha256=_hash(b"x"), language="es"
+                )
+            }
+
+            result = classify_normalization(
+                {}, previous, ingestion_dir=ingestion_dir, markdown_dir=markdown_dir,
+                run_timestamp=RUN_TS, dry_run=False,
+            )
+
+            self.assertEqual(result.orphaned, ["Manual/gone.txt"])
+            self.assertEqual(result.curated_entries["Manual/gone.txt"].language, "es")
 
 
 if __name__ == "__main__":

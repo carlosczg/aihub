@@ -139,7 +139,9 @@ existing invocation shape continues to work unchanged.
 
 All eight share one converter identity, `converter_id = "text_native"`,
 versioned independently of the package (`CONVERTER_VERSION` in
-`converters.py`). `.md` sources are passed through with their own leading
+`converters.py`, bumped `1.0.0` -> `1.1.0` in **V1.2.1A** for the additive
+front-matter identity fields below; no converter behavior changed).
+`.md` sources are passed through with their own leading
 YAML front matter (if any) parsed out and preserved under
 `source_metadata`; the other seven are wrapped verbatim in a fenced code
 block tagged with a language matching the extension. Fence length is
@@ -162,13 +164,34 @@ exists in V1.2.0.
 ### Canonical Markdown contract
 
 Every converted document gets exactly one AI Hub YAML front matter block
-(`schema_version`, `source_relative_path`, `source_extension`,
-`source_sha256`, `knowledge_source`, `converter_id`, `converter_version`,
-`source_metadata`) followed by the body. The front matter deliberately
-carries **no timestamp and no run identifier** — output is byte-identical
-for the same source bytes and the same converter version, regardless of
-when or in which run it was produced. Body content and line endings after
-any detected source front matter are preserved verbatim.
+(`schema_version`, `document_id`, `document_type`, `source_relative_path`,
+`source_extension`, `source_sha256`, `knowledge_source`, `language`,
+`converter_id`, `converter_version`, `source_metadata`, `derived_metadata`)
+followed by the body. `document_id`, `document_type`, `language`, and
+`derived_metadata` were added in **V1.2.1A**:
+
+- `document_id` — a stable per-document UUID4, minted once on first
+  conversion (or backfilled once for legacy curated-manifest entries) and
+  carried forward unchanged on every subsequent run regardless of
+  reconversion.
+- `document_type` — derived 1:1 from `knowledge_source` via a fixed
+  lookup table (`document_type.py`); recomputed on every reconversion,
+  carried forward otherwise.
+- `language` — computed from source content with a lightweight heuristic
+  (`language.py`) on `converted_new` / `converted_stale` /
+  `converted_stale_converter`; carried forward unchanged on `unchanged`,
+  `failed`-with-previous-entry, and `orphaned` states; backfilled as
+  `"und"` for legacy curated-manifest entries missing the field until
+  their next reconversion.
+- `derived_metadata` — always present, always `null` in V1.2.1A. Reserved
+  for future AI/semantic enrichment; this version performs no AI
+  interpretation or content analysis of any kind.
+
+The front matter deliberately carries **no timestamp and no run
+identifier** — output is byte-identical for the same source bytes and the
+same converter version, regardless of when or in which run it was
+produced. Body content and line endings after any detected source front
+matter are preserved verbatim.
 
 ### State machine
 

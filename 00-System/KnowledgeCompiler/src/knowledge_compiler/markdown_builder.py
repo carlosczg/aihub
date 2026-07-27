@@ -55,10 +55,13 @@ def parse_source_front_matter(text: str) -> tuple[dict | None, str]:
 
 def build_front_matter(
     *,
+    document_id: str,
     relative_path: str,
     extension: str,
     source_sha256: str,
     knowledge_source: str,
+    document_type: str,
+    language: str,
     converter_id: str,
     converter_version: str,
     source_metadata: dict | None,
@@ -68,16 +71,25 @@ def build_front_matter(
     Deliberately excludes any timestamp or run identifier: canonical
     Markdown must be byte-identical for the same source bytes and converter
     version, regardless of when or in which run it was produced.
+
+    `derived_metadata` is always `None` here -- per ADR-001, it is a
+    reserved field for future deterministic, rule-based derivations only.
+    No AI-generated or agent-generated content may populate it at this
+    stage.
     """
     return {
         "schema_version": AIHUB_FRONT_MATTER_SCHEMA_VERSION,
+        "document_id": document_id,
         "source_relative_path": relative_path,
         "source_extension": extension,
         "source_sha256": source_sha256,
         "knowledge_source": knowledge_source,
+        "document_type": document_type,
+        "language": language,
         "converter_id": converter_id,
         "converter_version": converter_version,
         "source_metadata": source_metadata,
+        "derived_metadata": None,
     }
 
 

@@ -72,21 +72,62 @@ class ParseSourceFrontMatterTests(unittest.TestCase):
         self.assertEqual(body, text)
 
 
+def _build_front_matter(**overrides) -> dict:
+    kwargs = dict(
+        document_id="00000000-0000-0000-0000-000000000000",
+        relative_path="Manual/a.py",
+        extension=".py",
+        source_sha256="0" * 64,
+        knowledge_source="Manual",
+        document_type="unknown",
+        language="und",
+        converter_id="text_native",
+        converter_version="1.0.0",
+        source_metadata=None,
+    )
+    kwargs.update(overrides)
+    return build_front_matter(**kwargs)
+
+
 class BuildFrontMatterTests(unittest.TestCase):
     def test_contains_no_timestamp_or_run_id_keys(self) -> None:
-        payload = build_front_matter(
-            relative_path="Manual/a.py",
-            extension=".py",
-            source_sha256="0" * 64,
-            knowledge_source="Manual",
-            converter_id="text_native",
-            converter_version="1.0.0",
-            source_metadata=None,
-        )
+        payload = _build_front_matter()
         forbidden_substrings = ("timestamp", "run_id", "generated_at", "converted_at")
         for key in payload:
             for forbidden in forbidden_substrings:
                 self.assertNotIn(forbidden, key)
+
+    def test_contains_the_full_closed_field_set(self) -> None:
+        payload = _build_front_matter()
+        expected_keys = {
+            "schema_version",
+            "document_id",
+            "source_relative_path",
+            "source_extension",
+            "source_sha256",
+            "knowledge_source",
+            "document_type",
+            "language",
+            "converter_id",
+            "converter_version",
+            "source_metadata",
+            "derived_metadata",
+        }
+        self.assertEqual(set(payload.keys()), expected_keys)
+
+    def test_derived_metadata_is_always_none(self) -> None:
+        payload = _build_front_matter()
+        self.assertIsNone(payload["derived_metadata"])
+
+    def test_document_id_document_type_and_language_are_passed_through(self) -> None:
+        payload = _build_front_matter(
+            document_id="11111111-1111-4111-8111-111111111111",
+            document_type="proposal",
+            language="es",
+        )
+        self.assertEqual(payload["document_id"], "11111111-1111-4111-8111-111111111111")
+        self.assertEqual(payload["document_type"], "proposal")
+        self.assertEqual(payload["language"], "es")
 
 
 class RenderCanonicalMarkdownTests(unittest.TestCase):

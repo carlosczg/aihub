@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+import uuid
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -22,8 +23,11 @@ RUN_TS = "2026-01-01T00:00:00+00:00"
 
 def _entry(relative_path: str) -> CuratedDocumentMetadata:
     return CuratedDocumentMetadata(
+        document_id="00000000-0000-0000-0000-000000000000",
         relative_path=relative_path,
         knowledge_source="Manual",
+        document_type="unknown",
+        language="und",
         source_extension=".txt",
         source_sha256="0" * 64,
         converter_id="text_native",
@@ -99,6 +103,163 @@ class LoadPreviousCuratedManifestTests(unittest.TestCase):
 
             with self.assertRaises(CuratedManifestCorruptError):
                 load_previous_curated_manifest(path)
+
+    def test_legacy_entry_without_document_id_is_backfilled_with_a_uuid4(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "document_normalizer_manifest.jsonl"
+            legacy_record = {
+                "relative_path": "Manual/a.txt",
+                "knowledge_source": "Manual",
+                "source_extension": ".txt",
+                "source_sha256": "0" * 64,
+                "converter_id": "text_native",
+                "converter_version": "1.0.0",
+                "output_relative_path": "Manual/a.txt.md",
+                "output_sha256": "1" * 64,
+                "first_seen_at": RUN_TS,
+                "last_converted_at": RUN_TS,
+            }
+            path.write_text(json.dumps(legacy_record) + "\n", encoding="utf-8")
+
+            entries = load_previous_curated_manifest(path)
+
+            document_id = entries["Manual/a.txt"].document_id
+            self.assertTrue(document_id)
+            self.assertEqual(uuid.UUID(document_id).version, 4)
+
+    def test_existing_document_id_is_preserved_on_load(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "document_normalizer_manifest.jsonl"
+            record = {
+                "document_id": "11111111-1111-4111-8111-111111111111",
+                "relative_path": "Manual/a.txt",
+                "knowledge_source": "Manual",
+                "source_extension": ".txt",
+                "source_sha256": "0" * 64,
+                "converter_id": "text_native",
+                "converter_version": "1.0.0",
+                "output_relative_path": "Manual/a.txt.md",
+                "output_sha256": "1" * 64,
+                "first_seen_at": RUN_TS,
+                "last_converted_at": RUN_TS,
+            }
+            path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+            entries = load_previous_curated_manifest(path)
+
+            self.assertEqual(
+                entries["Manual/a.txt"].document_id, "11111111-1111-4111-8111-111111111111"
+            )
+
+    def test_legacy_entry_without_document_type_is_backfilled_from_knowledge_source(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "document_normalizer_manifest.jsonl"
+            legacy_record = {
+                "relative_path": "OneDrive-Marketing/a.txt",
+                "knowledge_source": "OneDrive-Marketing",
+                "source_extension": ".txt",
+                "source_sha256": "0" * 64,
+                "converter_id": "text_native",
+                "converter_version": "1.0.0",
+                "output_relative_path": "OneDrive-Marketing/a.txt.md",
+                "output_sha256": "1" * 64,
+                "first_seen_at": RUN_TS,
+                "last_converted_at": RUN_TS,
+            }
+            path.write_text(json.dumps(legacy_record) + "\n", encoding="utf-8")
+
+            entries = load_previous_curated_manifest(path)
+
+            self.assertEqual(entries["OneDrive-Marketing/a.txt"].document_type, "marketing")
+
+    def test_legacy_entry_with_unmapped_knowledge_source_backfills_to_unknown(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "document_normalizer_manifest.jsonl"
+            legacy_record = {
+                "relative_path": "Manual/a.txt",
+                "knowledge_source": "Manual",
+                "source_extension": ".txt",
+                "source_sha256": "0" * 64,
+                "converter_id": "text_native",
+                "converter_version": "1.0.0",
+                "output_relative_path": "Manual/a.txt.md",
+                "output_sha256": "1" * 64,
+                "first_seen_at": RUN_TS,
+                "last_converted_at": RUN_TS,
+            }
+            path.write_text(json.dumps(legacy_record) + "\n", encoding="utf-8")
+
+            entries = load_previous_curated_manifest(path)
+
+            self.assertEqual(entries["Manual/a.txt"].document_type, "unknown")
+
+    def test_existing_document_type_is_preserved_on_load(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "document_normalizer_manifest.jsonl"
+            record = {
+                "document_type": "proposal",
+                "relative_path": "OneDrive-Marketing/a.txt",
+                "knowledge_source": "OneDrive-Marketing",
+                "source_extension": ".txt",
+                "source_sha256": "0" * 64,
+                "converter_id": "text_native",
+                "converter_version": "1.0.0",
+                "output_relative_path": "OneDrive-Marketing/a.txt.md",
+                "output_sha256": "1" * 64,
+                "first_seen_at": RUN_TS,
+                "last_converted_at": RUN_TS,
+            }
+            path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+            entries = load_previous_curated_manifest(path)
+
+            # A stored (even if inconsistent with the current mapping)
+            # value is preserved, not silently overwritten -- backfill only
+            # applies when the field is absent.
+            self.assertEqual(entries["OneDrive-Marketing/a.txt"].document_type, "proposal")
+
+    def test_legacy_entry_without_language_is_backfilled_with_und(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "document_normalizer_manifest.jsonl"
+            legacy_record = {
+                "relative_path": "Manual/a.txt",
+                "knowledge_source": "Manual",
+                "source_extension": ".txt",
+                "source_sha256": "0" * 64,
+                "converter_id": "text_native",
+                "converter_version": "1.0.0",
+                "output_relative_path": "Manual/a.txt.md",
+                "output_sha256": "1" * 64,
+                "first_seen_at": RUN_TS,
+                "last_converted_at": RUN_TS,
+            }
+            path.write_text(json.dumps(legacy_record) + "\n", encoding="utf-8")
+
+            entries = load_previous_curated_manifest(path)
+
+            self.assertEqual(entries["Manual/a.txt"].language, "und")
+
+    def test_existing_language_is_preserved_on_load(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "document_normalizer_manifest.jsonl"
+            record = {
+                "language": "es",
+                "relative_path": "Manual/a.txt",
+                "knowledge_source": "Manual",
+                "source_extension": ".txt",
+                "source_sha256": "0" * 64,
+                "converter_id": "text_native",
+                "converter_version": "1.0.0",
+                "output_relative_path": "Manual/a.txt.md",
+                "output_sha256": "1" * 64,
+                "first_seen_at": RUN_TS,
+                "last_converted_at": RUN_TS,
+            }
+            path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+            entries = load_previous_curated_manifest(path)
+
+            self.assertEqual(entries["Manual/a.txt"].language, "es")
 
     def test_duplicate_relative_path_raises(self) -> None:
         with TemporaryDirectory() as tmp:

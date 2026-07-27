@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import converters
 from .converters import DEFERRED_EXTENSIONS, SUPPORTED_EXTENSIONS, ConversionError, convert
 from .curated_manifest import CuratedDocumentMetadata
+from .document_type import document_type_for
 from .io_utils import stage_text
+from .language import language_for
 from .metadata import DocumentMetadata
 
 
@@ -123,12 +126,20 @@ def classify_normalization(
         try:
             source_bytes = (ingestion_dir / relative_path).read_bytes()
             source_text = source_bytes.decode("utf-8")
+
+            document_id = prev.document_id if prev is not None else str(uuid.uuid4())
+            document_type = document_type_for(source_entry.knowledge_source)
+            language = language_for(source_text)
+
             result = convert(
                 extension=extension,
                 source_text=source_text,
                 relative_path=relative_path,
                 source_sha256=source_entry.sha256,
                 knowledge_source=source_entry.knowledge_source,
+                document_id=document_id,
+                document_type=document_type,
+                language=language,
             )
 
             output_relative_path = f"{relative_path}.md"
@@ -140,8 +151,11 @@ def classify_normalization(
                 artifact.publish()
 
             entry = CuratedDocumentMetadata(
+                document_id=document_id,
                 relative_path=relative_path,
                 knowledge_source=source_entry.knowledge_source,
+                document_type=document_type,
+                language=language,
                 source_extension=extension,
                 source_sha256=source_entry.sha256,
                 converter_id=converters.CONVERTER_ID,

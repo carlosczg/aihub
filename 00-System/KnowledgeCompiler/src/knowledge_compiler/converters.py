@@ -10,7 +10,7 @@ from .markdown_builder import (
 )
 
 CONVERTER_ID = "text_native"
-CONVERTER_VERSION = "1.0.0"
+CONVERTER_VERSION = "1.1.0"
 
 # Extension -> fenced-code-block language tag. `.md` is handled separately
 # (front-matter-aware passthrough, never fenced). `.csv` and `.xml` are
@@ -86,12 +86,16 @@ def convert(
     relative_path: str,
     source_sha256: str,
     knowledge_source: str,
+    document_id: str,
+    document_type: str,
+    language: str,
 ) -> ConversionResult:
     """Convert `source_text` (already decoded) into canonical Markdown.
 
     Deterministic for a given `(source_text, relative_path, source_sha256,
-    knowledge_source)` tuple and the current `CONVERTER_VERSION`: no
-    timestamps or run identifiers are introduced anywhere in the output.
+    knowledge_source, document_id, document_type, language)` tuple and the
+    current `CONVERTER_VERSION`: no timestamps or run identifiers are
+    introduced anywhere in the output.
     """
     if extension == ".md":
         source_metadata, body = parse_source_front_matter(source_text)
@@ -104,10 +108,13 @@ def convert(
         )
 
     front_matter = build_front_matter(
+        document_id=document_id,
         relative_path=relative_path,
         extension=extension,
         source_sha256=source_sha256,
         knowledge_source=knowledge_source,
+        document_type=document_type,
+        language=language,
         converter_id=CONVERTER_ID,
         converter_version=CONVERTER_VERSION,
         source_metadata=source_metadata,

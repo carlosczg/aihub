@@ -2,7 +2,7 @@
 
 ## Last updated
 
-2026-07-20
+2026-07-27
 
 ## Current milestone
 
@@ -17,6 +17,16 @@ successfully executed for the first time against the real repository on
 branch `feature/document-normalizer-v1.2` (run_id
 `20260720T030909.550868Z-bc40`, initial mode, exit code 0 / clean). Not
 yet merged to `main`.
+
+Knowledge Compiler V1.2.1A (Document Identity Metadata) is **formally
+closed**: implemented, unit-tested (174 tests, all passing, all synthetic
+fixtures), and successfully executed against the real repository on
+branch `feature/document-normalizer-v1.2.1` (run_id
+`20260727T194202.584265Z-9562`, incremental mode, exit code 0 / clean, all
+179 text-native documents reclassified as `converted_stale_converter` and
+reconverted with zero failures). See "Validation results (V1.2.1A
+production run)" below. ADR-001 (Knowledge Representation) is **Accepted**.
+Not yet merged to `main`.
 
 ## Completed
 
@@ -97,6 +107,56 @@ yet merged to `main`.
 - First real V1.2.0 production run executed against the real repository
   (run_id `20260720T030909.550868Z-bc40`, initial mode, exit code 0 /
   clean). See "Validation results (V1.2.0 production run)" below.
+- Knowledge Compiler V1.2.1A (Document Identity Metadata) implemented:
+  `document_id` (stable per-document UUID4, minted once and carried
+  forward across reconversions), `document_type` (derived 1:1 from
+  `knowledge_source` via `document_type.py`), and `language` (computed
+  from source content via a lightweight heuristic in `language.py`,
+  backfilled as `"und"` for legacy manifest entries, carried forward
+  unchanged on `unchanged` / `failed`-with-previous-entry / `orphaned`
+  states, and recomputed on `converted_new` / `converted_stale` /
+  `converted_stale_converter`) are now wired into `CuratedDocumentMetadata`
+  and into the canonical Markdown front matter, alongside a new
+  `derived_metadata` field (always present, always `null` -- reserved for
+  future AI/semantic enrichment, no AI interpretation performed in this
+  version). `CONVERTER_VERSION` bumped `1.0.0` -> `1.1.0` (additive fields
+  only; no converter behavior changed). 42 new/updated unit tests added
+  (132 -> 174 total), all against synthetic fixtures. Explicitly out of
+  scope for this batch: PDF, DOCX, rename correlation, summaries,
+  embeddings, Knowledge Graph, entity extraction, relationship extraction.
+  `01-Ingestion` was not modified.
+- First real V1.2.1A production run executed against the real repository
+  (run_id `20260727T194202.584265Z-9562`, incremental mode, exit code 0 /
+  clean). See "Validation results (V1.2.1A production run)" below.
+
+## Validation results (V1.2.1A production run 20260727T194202.584265Z-9562)
+
+- Exit code: 0 (clean — zero failed files).
+- Ran against the same real repository inventory as the V1.2.0 run:
+  `source_total=7748 text_native=179 deferred=7544 unsupported=25`.
+- All 179 previously curated documents reclassified as
+  `converted_stale_converter` (0 `converted_new`, 0 `converted_stale`, 0
+  `unchanged`) because `CONVERTER_VERSION` changed `1.0.0` -> `1.1.0`
+  while every source `sha256` was unchanged — the documented
+  converter-version-precedence path in the state machine. `failed=0`,
+  `orphaned=0`.
+- All 179 canonical Markdown files under `02-Curated/Markdown/` were
+  rewritten with the new front matter, each now including `document_id`,
+  `document_type`, `language`, and `derived_metadata` (null) alongside
+  the preserved `schema_version`, `source_relative_path`,
+  `source_extension`, `source_sha256`, `knowledge_source`,
+  `converter_id`, `converter_version: 1.1.0`, and `source_metadata`
+  fields.
+- `document_normalizer_manifest.jsonl` (179 entries), updated
+  `normalizer_run_metadata.json`, and a new immutable run-history file
+  (`02-Curated/Metadata/runs/run_20260727T194202.584265Z-9562.json`) were
+  all written and are mutually consistent (same run_id and metrics in
+  both the run-metadata pointer and the run-history record); the prior
+  V1.2.0 run-history file was preserved, not overwritten.
+- `01-Ingestion` was not modified by this run (confirmed via `git status`/
+  `git diff --stat` scoped to that path: empty).
+- Full unit test suite: `Ran 174 tests ... OK` (`.venv/bin/python -m
+  unittest discover -s tests`), run immediately before formal closure.
 
 ## V1.1.1 status
 
@@ -190,11 +250,12 @@ the V1.1 run recorded below (`20260717T030748.563951Z-dfb7`).
 08-Indexes/Metadata/runs/run_20260717T030748.563951Z-dfb7.json
 ```
 
-## V1.2.0 outputs (curated_manifest schema_version 1, real run on record)
+## V1.2.0 / V1.2.1A outputs (curated_manifest schema_version 1, real runs on record)
 
 ```text
-02-Curated/Markdown/<mirrored source path>/<original filename>.md  (179 files)
+02-Curated/Markdown/<mirrored source path>/<original filename>.md  (179 files, front matter upgraded by V1.2.1A)
 02-Curated/Metadata/document_normalizer_manifest.jsonl
 02-Curated/Metadata/normalizer_run_metadata.json
-02-Curated/Metadata/runs/run_20260720T030909.550868Z-bc40.json
+02-Curated/Metadata/runs/run_20260720T030909.550868Z-bc40.json  (V1.2.0, initial)
+02-Curated/Metadata/runs/run_20260727T194202.584265Z-9562.json  (V1.2.1A, converted_stale_converter)
 ```

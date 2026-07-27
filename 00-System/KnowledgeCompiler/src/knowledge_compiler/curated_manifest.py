@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .document_type import document_type_for
 from .io_utils import stage_text
+from .language import LANGUAGE_UNDETERMINED
 from .manifest import unique_run_id  # noqa: F401  (re-exported for callers)
 
 if TYPE_CHECKING:
@@ -28,6 +31,15 @@ REQUIRED_CURATED_FIELDS = {
     "first_seen_at",
     "last_converted_at",
 }
+
+# `document_id`, `document_type`, and `language` are deliberately absent
+# from REQUIRED_CURATED_FIELDS: a manifest line written before any of them
+# existed is still valid, not corrupt (mirrors first_seen_at/
+# last_verified_at in the V1.1 document manifest). `load_previous_curated_
+# manifest` backfills `document_id` with a fresh UUID4, `document_type`
+# from the record's own `knowledge_source` via `document_type_for`, and
+# `language` with `LANGUAGE_UNDETERMINED` (source content is not re-read
+# solely to backfill it), when any is missing.
 
 REQUIRED_METRICS_FIELDS = {
     "source_total",
@@ -71,8 +83,11 @@ class CuratedManifestCorruptError(RuntimeError):
 
 @dataclass(frozen=True)
 class CuratedDocumentMetadata:
+    document_id: str
     relative_path: str
     knowledge_source: str
+    document_type: str
+    language: str
     source_extension: str
     source_sha256: str
     converter_id: str
@@ -99,6 +114,14 @@ def load_previous_curated_manifest(manifest_path: Path) -> dict[str, CuratedDocu
     unparseable file raises `CuratedManifestCorruptError` -- there is no
     `--full` recovery path for the curated manifest in V1.2.0; a corrupt
     curated manifest always aborts the run without advancing it.
+
+    A line written before `document_id` existed is backfilled with a fresh
+    UUID4 here, on load -- it is not treated as corrupt. A line written
+    before `document_type` existed is backfilled from its own
+    `knowledge_source` via `document_type_for`, same rule. A line written
+    before `language` existed is backfilled with `LANGUAGE_UNDETERMINED`
+    ("und") -- source content is not re-read solely to backfill it; the
+    next reconversion recomputes it from actual content.
     """
     if not manifest_path.is_file():
         return {}
@@ -138,9 +161,13 @@ def load_previous_curated_manifest(manifest_path: Path) -> dict[str, CuratedDocu
                 f"duplicate relative_path '{relative_path}' on line {line_number}",
             )
 
+        knowledge_source = record["knowledge_source"]
         entries[relative_path] = CuratedDocumentMetadata(
+            document_id=record.get("document_id") or str(uuid.uuid4()),
             relative_path=relative_path,
-            knowledge_source=record["knowledge_source"],
+            knowledge_source=knowledge_source,
+            document_type=record.get("document_type") or document_type_for(knowledge_source),
+            language=record.get("language") or LANGUAGE_UNDETERMINED,
             source_extension=record["source_extension"],
             source_sha256=record["source_sha256"],
             converter_id=record["converter_id"],

@@ -15,6 +15,9 @@ _COMMON_KWARGS = dict(
     relative_path="Manual/example",
     source_sha256="0" * 64,
     knowledge_source="Manual",
+    document_id="00000000-0000-0000-0000-000000000000",
+    document_type="unknown",
+    language="und",
 )
 
 
@@ -114,6 +117,42 @@ class DeterminismTests(unittest.TestCase):
         result = convert(extension=".txt", source_text="hi\n", **_COMMON_KWARGS)
         self.assertIn(f"converter_id: {CONVERTER_ID}", result.canonical_markdown)
         self.assertIn(f"converter_version: {CONVERTER_VERSION}", result.canonical_markdown)
+
+
+class FrontMatterFieldSetTests(unittest.TestCase):
+    def test_canonical_markdown_front_matter_includes_the_full_closed_field_set(self) -> None:
+        result = convert(extension=".txt", source_text="hi\n", **_COMMON_KWARGS)
+        expected_field_markers = (
+            "document_id:",
+            "document_type:",
+            "language:",
+            "source_relative_path:",
+            "source_extension:",
+            "source_sha256:",
+            "knowledge_source:",
+            "converter_id:",
+            "converter_version:",
+            "source_metadata:",
+            "derived_metadata:",
+        )
+        for marker in expected_field_markers:
+            self.assertIn(marker, result.canonical_markdown)
+
+    def test_derived_metadata_is_null_in_rendered_front_matter(self) -> None:
+        result = convert(extension=".txt", source_text="hi\n", **_COMMON_KWARGS)
+        self.assertIn("derived_metadata: null", result.canonical_markdown)
+
+    def test_document_id_document_type_and_language_are_rendered(self) -> None:
+        kwargs = dict(_COMMON_KWARGS)
+        kwargs.update(
+            document_id="11111111-1111-4111-8111-111111111111",
+            document_type="proposal",
+            language="es",
+        )
+        result = convert(extension=".txt", source_text="hi\n", **kwargs)
+        self.assertIn("document_id: 11111111-1111-4111-8111-111111111111", result.canonical_markdown)
+        self.assertIn("document_type: proposal", result.canonical_markdown)
+        self.assertIn("language: es", result.canonical_markdown)
 
 
 if __name__ == "__main__":
