@@ -36,6 +36,8 @@ env/
 # AI Hub — runtime artifacts
 00-System/Logs/
 00-System/Temp/
+00-System/AgentValidation/results/*
+!00-System/AgentValidation/results/.gitkeep
 
 # Machine-specific configuration
 00-System/Config/knowledge_sources.conf
