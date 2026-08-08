@@ -259,3 +259,40 @@ the V1.1 run recorded below (`20260717T030748.563951Z-dfb7`).
 02-Curated/Metadata/runs/run_20260720T030909.550868Z-bc40.json  (V1.2.0, initial)
 02-Curated/Metadata/runs/run_20260727T194202.584265Z-9562.json  (V1.2.1A, converted_stale_converter)
 ```
+
+## Development environment (Python) — added 2026-08-08
+
+OneDrive sync errors were observed on Python virtual-environment artifacts
+(`.venv/.lock`, `*.dist-info/REQUESTED`) inside the OneDrive-synced repo.
+Root cause: a `.venv/` had been created directly under
+`00-System/KnowledgeCompiler/` inside OneDrive. It has been removed; the
+environment now lives outside OneDrive.
+
+**Rule: `.venv` must never live inside this OneDrive-synced repo.**
+
+- Recommended external venv path:
+  `/Users/carlosczg/LocalDev/venvs/knowledge-compiler`
+- Create/install (uv preferred):
+  ```bash
+  uv venv /Users/carlosczg/LocalDev/venvs/knowledge-compiler
+  cd 00-System/KnowledgeCompiler
+  uv pip install --python /Users/carlosczg/LocalDev/venvs/knowledge-compiler/bin/python -e .
+  ```
+- Run KnowledgeCompiler tests using the external venv:
+  ```bash
+  cd 00-System/KnowledgeCompiler
+  /Users/carlosczg/LocalDev/venvs/knowledge-compiler/bin/python -B -m unittest discover -s tests -v
+  ```
+- Run AgentValidation tests (plain Python is sufficient; no extra deps):
+  ```bash
+  PYTHONPATH=00-System/AgentValidation/src \
+    /Users/carlosczg/LocalDev/venvs/knowledge-compiler/bin/python -B -m unittest discover -s 00-System/AgentValidation/tests -v
+  ```
+  (`-B` skips writing `__pycache__/*.pyc` bytecode files, since even a
+  correctly-external venv's interpreter still writes bytecode caches next to
+  the source files it imports — which live inside the OneDrive-synced repo.)
+- `.gitignore` already covers `**/.venv/`, `__pycache__/`, `.pytest_cache/`,
+  `.ruff_cache/`, `.mypy_cache/`, `dist/`, `build/`, `*.egg-info/`,
+  `*.dist-info/` — but gitignore does not stop OneDrive from syncing stray
+  files that exist on disk, so the real fix is: never create the venv inside
+  the repo in the first place.

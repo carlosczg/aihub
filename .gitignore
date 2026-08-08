@@ -14,9 +14,18 @@ __pycache__/
 htmlcov/
 
 # Python environments
+# IMPORTANT: .venv must live OUTSIDE the OneDrive-synced repo (OneDrive chokes
+# on venv lock/cache files -- see /Users/carlosczg/LocalDev/venvs/knowledge-compiler).
 .venv/
+**/.venv/
 venv/
 env/
+
+# Python build/packaging artifacts
+dist/
+build/
+*.egg-info/
+*.dist-info/
 
 # Environment variables and secrets
 .env
