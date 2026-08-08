@@ -18,6 +18,11 @@ layer is built on top of it.
 - No LLM API calls inside the tool itself. The CLI only selects candidates and
   formats a context bundle; answering the question is left to whatever agent
   the bundle is pasted into.
+- No summaries, no entity extraction, and no Knowledge Graph construction or
+  traversal of any kind. V1.3 only selects and returns raw candidate metadata
+  plus Markdown content -- it does not derive, summarize, or link anything.
+- No aggregation or counting. V1.3 has no concept of "how many" or "per
+  knowledge_source/language" -- see "Scope (V1.3)" below.
 - No writes to `02-Curated/` or to the Knowledge Compiler's manifests. This
   tool is a strictly read-only consumer of Knowledge Compiler output.
 - No dependency on the `knowledge_compiler` package. The repo-root discovery
@@ -65,6 +70,36 @@ tie-break rule. See "How selection works" below.
 5. **No candidates** — if every entry scores zero, the selector returns the
    explicit `NoCandidatesFound` sentinel (not an empty list), and the CLI
    prints that fact instead of an instruction block implying sources exist.
+
+## Scope (V1.3): what kinds of questions this answers
+
+V1.3 is a **deterministic retrieval harness**, not a general question-answering
+system. It is good at *retrieval-style* questions -- "find / summarize /
+describe X" -- where keyword/token overlap against paths and Markdown bodies
+can locate the right document(s). Real-corpus smoke testing (see
+`questions.md`) confirms this works well: e.g. `Caso_Financiera.py` correctly
+ranks #1 for "Summarize what Caso_Financiera.py does."
+
+**Aggregation/counting questions are out of scope for V1.3.** Questions like
+"How many curated documents exist per knowledge_source and language?" cannot
+be answered correctly by keyword-overlap candidate selection -- there is no
+aggregation/counting capability in the selector, so it returns a small,
+arbitrary-looking sample of the manifest rather than true totals. For these
+questions, either answer manually from the manifest
+(`02-Curated/Metadata/document_normalizer_manifest.jsonl`, e.g. with `jq` /
+`wc -l` / a one-off script) or treat proper aggregation support as a candidate
+V1.3.1/V1.4 feature. Do not present V1.3's candidate bundle as a valid answer
+to an aggregation question.
+
+**Low-score candidates are an abstention signal.** When every returned
+candidate scores at or near the minimum (1, matched only on a generic token),
+that is a strong hint the corpus does not actually contain material on the
+topic -- treat it as grounds to abstain ("the corpus does not appear to
+address this") rather than answer from weak/incidental matches. This behavior
+was validated against a negative-control question (GDPR / parental-leave
+policy, see `questions.md` #9): all returned candidates scored 1 on the
+generic token "policy" only, and the correct response is "not found in the
+corpus," not a guess.
 
 ## Running the CLI
 
